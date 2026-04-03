@@ -1,91 +1,57 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import altair as alt
+import plotly.graph_objects as go
+from datetime import datetime
 
-# 1. 網頁基本設定
-st.set_page_config(page_title="GOOGL 專業估值監控", layout="wide")
+# 設定網頁標題與圖示
+st.set_page_config(page_title="GOOGL 估值監控儀表板", layout="wide")
 
-st.title("📊 Alphabet (GOOGL) 估值監控儀表板")
-st.caption("數據來源：Yahoo Finance | 自動整合三種估值模型判斷")
+# 自定義 CSS 讓介面更有金融終端機的質感
+st.markdown("""
+    <style>
+    .main { background-color: #0d0f12; color: #e8eaf0; }
+    .stMetric { background-color: #1a1e25; padding: 15px; border-radius: 10px; border: 1px solid #2d323d; }
+    </style>
+    """, unsafe_allow_html=True)
 
-# 2. 自動抓取即時數據
-@st.cache_data(ttl=3600) # 快取功能，一小時抓一次即可，避免被封鎖
-def get_data():
-    googl = yf.Ticker("GOOGL")
-    meta = yf.Ticker("META")
+# --- 1. 數據抓取函式 (這就是大腦) ---
+@st.cache_data(ttl=3600)  # 快取功能：一小時內重複開啟網頁不會重新抓取，節省資源
+def get_stock_data(ticker):
+    data = yf.Ticker(ticker)
+    curr = data.history(period="1d")['Close'].iloc[-1]
+    return round(curr, 2)
+
+# --- 2. 側邊欄：假設參數調整 (讓你領會模型如何連動) ---
+st.sidebar.header("📊 估值模型參數")
+st.sidebar.write("你可以手動調整以下數值觀察目標價變化")
+
+# 相對估值參數
+pe_mult = st.sidebar.slider("相對估值 (P/E 倍數)", 15.0, 30.0, 22.0)
+# SOTP 參數
+cloud_mult = st.sidebar.slider("雲端業務 (EV/Sales)", 10.0, 20.0, 14.0)
+search_mult = st.sidebar.slider("搜尋業務 (EV/Sales)", 10.0, 20.0, 16.0)
+
+# --- 3. 核心邏輯計算 ---
+try:
+    current_price = get_stock_data("GOOGL")
     
-    # 獲取現價與PE
-    price = googl.history(period="1d")['Close'].iloc[-1]
-    g_pe = googl.info.get('trailingPE', 0)
-    m_pe = meta.info.get('trailingPE', 0)
-    return price, g_pe, m_pe
+    # 模型 A: 相對估值 (假設 EPS 10.81)
+    val_relative = 10.81 * pe_mult
+    
+    # 模型 B: SOTP 分部加總 (假設營收數據)
+    # 公式：(搜尋價值 + 雲端價值 + 其他) / 股數
+    val_sotp = ((95 * search_mult) + (58.7 * cloud_mult) + (60 * 9) + 50) / 12.3
+    
+    # 模型 C: DCF (簡化設定值)
+    val_dcf = 195.0 
+    
+    # 綜合目標價 (加權平均：SOTP 佔 50%, 相對 30%, DCF 20%)
+    target_price = (val_relative * 0.3) + (val_sotp * 0.5) + (val_dcf * 0.2)
 
-current_price, googl_pe, meta_pe = get_data()
+    # --- 4. 網頁前端顯示 ---
+    st.title("🚀 Alphabet (GOOGL) 估值監控儀表板")
+    st.write(f"數據最後更新時間: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-# 3. 核心指標設定 (這裡的數值可根據每季財報手動修改一次)
-cloud_growth = 48  # 雲端營收增速 %
-ad_growth = 17     # 廣告營收增速 %
-fcf_growth = 10    # 自由現金流增速 %
-
-# 4. 估值模型計算邏輯
-# 模型 A: 相對估值 (預設合理 PE 為 22x)
-val_relative = 10.8 * 22  
-
-# 模型 B: DCF (內在價值)
-val_dcf = 195.0 
-
-# 模型 C: SOTP (分部加總，給予 Cloud 高成長溢價)
-val_sotp = 216.0 
-
-# --- 網頁畫面呈現 ---
-
-# 第一行：即時數據看板
-col1, col2, col3 = st.columns(3)
-col1.metric("當前股價", f"${current_price:.2f}")
-col2.metric("Google P/E", f"{googl_pe:.1f}x", delta=f"{googl_pe - meta_pe:.1f} vs META", delta_color="inverse")
-col3.metric("Cloud 增速", f"{cloud_growth}%", delta="門檻 30%")
-
-st.divider()
-
-# 第二行：河流圖/區間圖 (視覺化)
-st.subheader("📈 估值河流區間圖 (Valuation Bands)")
-st.write("紅線為當前股價，橫條為各模型之合理目標價。")
-
-# 準備圖表數據
-valuation_df = pd.DataFrame({
-    '模型名稱': ['1. 相對估值', '2. DCF 內在價值', '3. SOTP 分部加總'],
-    '預估價格': [val_relative, val_dcf, val_sotp],
-    '顏色': ['#4A9EFF', '#2FD4A0', '#F0A832'] # 藍、綠、黃
-})
-
-# 畫出橫條圖
-bars = alt.Chart(valuation_df).mark_bar(size=40).encode(
-    x=alt.X('預估價格:Q', title='價格 (USD)', scale=alt.Scale(domain=[100, 350])),
-    y=alt.Y('模型名稱:N', title=None),
-    color=alt.Color('顏色:N', scale=None)
-)
-
-# 畫出目前股價的紅線
-price_line = alt.Chart(pd.DataFrame({'x': [current_price]})).mark_rule(
-    color='#FF4B4B', strokeWidth=3
-).encode(x='x:Q')
-
-# 標註紅線數值 (修正縮進與括號)
-price_text = alt.Chart(pd.DataFrame({'x': [current_price], 'y': ['2. DCF 內在價值'], 't': [f'現價: ${current_price:.2f}']})).mark_text(
-    align='left', 
-    dx=5, 
-    color='#FF4B4B', 
-    fontWeight='bold'
-).encode(x='x:Q', y='y:N', text='t:N')
-
-# 5. 最後把圖表組合起來顯示
-st.altair_chart(bars + price_line + price_text, use_container_width=True)
-
-# 6. 投資結論區
-st.divider()
-st.subheader("💡 監控小結")
-if current_price > val_sotp:
-    st.error(f"目前股價 ${current_price:.2f} 高於 SOTP 估值 ${val_sotp}，建議分批減碼或耐心等待。")
-else:
-    st.success(f"目前股價 ${current_price:.2f} 低於 SOTP 估值 ${val_sotp}，具備安全邊際。")
+    # 第一排：核心指標
+    col1, col2, col3, col4 = st.columns(4
