@@ -60,7 +60,7 @@ capex_rev_ratio = st.sidebar.number_input("CapEx / Revenue 比率 (%)", value=16
 cloud_rev       = st.sidebar.number_input("Cloud 年營收 ($B)",       value=58.7, step=0.1)
 search_ebitda   = st.sidebar.number_input("Search EBITDA ($B)",      value=95.0, step=0.5)
 eps_ttm         = st.sidebar.number_input("EPS（TTM）",               value=10.81, step=0.01)
-shares_b        = st.sidebar.number_input("流通股數（億股）",         value=123.0, step=0.5)
+shares_b = st.sidebar.number_input("流通股數（億股）", value=120.0, step=0.5)
 legal_risk      = st.sidebar.selectbox("反壟斷法律風險",
                     ["無重大進展", "訴訟進行中", "不利判決"])
 
@@ -88,7 +88,7 @@ sotp_cloud   = cloud_rev * cloud_mult
 sotp_youtube = youtube_val
 sotp_other   = 50.0
 sotp_total_b = sotp_search + sotp_cloud + sotp_youtube + sotp_other
-val_sotp     = sotp_total_b / (shares_b / 10)   # $B → per share
+val_sotp = (sotp_total_b * 1000) / shares_b   # $B × 1000 ÷ 億股 = $/股
 
 # DCF（10年 + 終值）
 terminal_growth = 0.03
@@ -99,7 +99,7 @@ for t in range(1, 11):
 terminal_cf  = fcf_base * ((1 + fcf_growth_dcf / 100) ** 10) * (1 + terminal_growth)
 terminal_val = terminal_cf / ((wacc / 100) - terminal_growth)
 total_pv    += terminal_val / ((1 + wacc / 100) ** 10)
-val_dcf      = (total_pv / (shares_b / 10)) * 1000   # $B → per share
+val_dcf  = (total_pv * 1000) / shares_b        # 同上
 
 # 綜合加權
 composite = val_relative * 0.3 + val_dcf * 0.2 + val_sotp * 0.5
