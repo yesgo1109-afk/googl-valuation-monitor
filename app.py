@@ -60,7 +60,7 @@ capex_rev_ratio = st.sidebar.number_input("CapEx / Revenue 比率 (%)", value=16
 cloud_rev       = st.sidebar.number_input("Cloud 年營收 ($B)",       value=58.7, step=0.1)
 search_ebitda   = st.sidebar.number_input("Search EBITDA ($B)",      value=95.0, step=0.5)
 eps_ttm         = st.sidebar.number_input("EPS（TTM）",               value=10.81, step=0.01)
-shares_b        = st.sidebar.number_input("流通股數（億股）",         value=123.0, step=0.5)
+shares_b        = st.sidebar.number_input("流通股數（億股）",         value=120.0, step=0.5)
 legal_risk      = st.sidebar.selectbox("反壟斷法律風險",
                     ["無重大進展", "訴訟進行中", "不利判決"])
 
