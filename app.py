@@ -88,7 +88,7 @@ sotp_cloud   = cloud_rev * cloud_mult
 sotp_youtube = youtube_val
 sotp_other   = 50.0
 sotp_total_b = sotp_search + sotp_cloud + sotp_youtube + sotp_other
-val_sotp = (sotp_total_b * 1000) / shares_b   # $B × 1000 ÷ 億股 = $/股
+val_sotp = (sotp_total_b * 10) / shares_b   # $B × 1000 ÷ 億股 = $/股
 
 # DCF（10年 + 終值）
 terminal_growth = 0.03
@@ -99,7 +99,7 @@ for t in range(1, 11):
 terminal_cf  = fcf_base * ((1 + fcf_growth_dcf / 100) ** 10) * (1 + terminal_growth)
 terminal_val = terminal_cf / ((wacc / 100) - terminal_growth)
 total_pv    += terminal_val / ((1 + wacc / 100) ** 10)
-val_dcf  = (total_pv * 1000) / shares_b        # 同上
+val_dcf  = (total_pv * 10) / shares_b        # 同上
 
 # 綜合加權
 composite = val_relative * 0.3 + val_dcf * 0.2 + val_sotp * 0.5
