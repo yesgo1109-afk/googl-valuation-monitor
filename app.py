@@ -1,79 +1,88 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import plotly.graph_objects as go
-from datetime import datetime
+import altair as alt
 
-# 設定網頁標題與圖示
-st.set_page_config(page_title="GOOGL 估值監控儀表板", layout="wide")
+# 1. 網頁基本設定 (明亮模式)
+st.set_page_config(page_title="GOOGL 精準估值監控", layout="wide")
 
-# 自定義 CSS
-st.markdown("""
-    <style>
-    .main { background-color: #0d0f12; color: #e8eaf0; }
-    .stMetric { background-color: #1a1e25; padding: 15px; border-radius: 10px; border: 1px solid #2d323d; }
-    </style>
-    """, unsafe_allow_html=True)
+st.title("📊 Alphabet (GOOGL) 專業估值儀表板")
+st.markdown("---")
 
-# --- 1. 數據抓取函式 ---
-@st.cache_data(ttl=3600)
-def get_stock_data(ticker):
-    data = yf.Ticker(ticker)
-    curr = data.history(period="1d")['Close'].iloc[-1]
-    return round(curr, 2)
+# 2. 抓取即時數據 (大腦部分)
+@st.cache_data(ttl=3600) # 快取一小時，符合你「不需秒秒更新」的需求
+def get_stock_data():
+    ticker = "GOOGL"
+    data = yf.Ticker(ticker).history(period="1d")
+    return data['Close'].iloc[-1]
 
-# --- 2. 側邊欄參數 ---
-st.sidebar.header("📊 估值模型參數")
-pe_mult = st.sidebar.slider("相對估值 (P/E 倍數)", 15.0, 30.0, 22.0)
-cloud_mult = st.sidebar.slider("雲端業務 (EV/Sales)", 10.0, 20.0, 14.0)
-search_mult = st.sidebar.slider("搜尋業務 (EV/Sales)", 10.0, 20.0, 16.0)
-
-# --- 3. 核心邏輯計算 (放在 try 裡面確保安全) ---
 try:
-    # 這裡所有的程式碼都必須有正確的縮排
-    current_price = get_stock_data("GOOGL")
-    
-    # 模型 A: 相對估值
-    val_relative = 10.81 * pe_mult
-    
-    # 模型 B: SOTP 分部加總
-    val_sotp = ((95 * search_mult) + (58.7 * cloud_mult) + (60 * 9) + 50) / 12.3
-    
-    # 模型 C: DCF
-    val_dcf = 195.0 
-    
-    # 綜合目標價
-    target_price = (val_relative * 0.3) + (val_sotp * 0.5) + (val_dcf * 0.2)
+    current_price = get_stock_data()
+except:
+    current_price = 295.77  # 萬一網路斷掉的備用數值
 
-    # --- 4. 網頁前端顯示 ---
-    st.title("🚀 Alphabet (GOOGL) 估值監控儀表板")
-    st.write(f"最後更新: {datetime.now().strftime('%H:%M:%S')}")
+# 3. 側邊欄：調整假設 (拉桿部分)
+st.sidebar.header("⚙️ 模型參數調整")
+pe_ratio = st.sidebar.slider("相對估值：預期 P/E", 15.0, 35.0, 22.0)
+cloud_mult = st.sidebar.slider("SOTP：雲端業務倍數", 5.0, 25.0, 14.0)
+dcf_val = st.sidebar.number_input("DCF：內在價值設定", value=220.0)
 
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("目前股價", f"${current_price}")
-    col2.metric("綜合目標價", f"${target_price:.2f}")
-    
-    diff = target_price - current_price
-    diff_pct = (diff / current_price) * 100
-    col3.metric("潛在空間", f"${diff:.2f}", f"{diff_pct:.2f}%")
-    
-    status = "✅ 具安全邊際" if diff > 0 else "⚠️ 目前溢價"
-    col4.metric("投資狀態", status)
+# 4. 估值邏輯計算
+# 模型 A: 相對估值 (假設 EPS 10.81)
+val_relative = 10.81 * pe_ratio
 
-    st.markdown("---")
+# 模型 B: SOTP 分部加總 (簡化公式)
+val_sotp = ((95 * 16) + (58.7 * cloud_mult) + 100) / 12.3
 
-    # 視覺化圖表
-    st.subheader("股價與各模型估值對比")
-    fig = go.Figure()
-    models = ['相對估值', 'SOTP加總', 'DCF價值', '綜合目標']
-    values = [val_relative, val_sotp, val_dcf, target_price]
-    
-    fig.add_trace(go.Bar(x=models, y=values, marker_color='#4a9eff'))
-    fig.add_hline(y=current_price, line_dash="dash", line_color="red", annotation_text=f"現價 ${current_price}")
-    
-    fig.update_layout(template="plotly_dark", height=400)
-    st.plotly_chart(fig, use_container_width=True)
+# 模型 C: 綜合目標 (權重分配)
+composite_price = (val_relative * 0.4) + (val_sotp * 0.4) + (dcf_val * 0.2)
 
-# 這是 try 的備案，必須寫在最左邊，不能有縮排
-except Exception as e:
-    st.error(f"程式執行出錯：{e}")
+# 5. 視覺化圖表 (配色與級距優化)
+# 準備數據表
+df_plot = pd.DataFrame({
+    '模型名稱': ['1. 相對估值', '2. SOTP 加總', '3. DCF 價值', '4. 綜合目標'],
+    '估值金額': [val_relative, val_sotp, dcf_val, composite_price],
+    '顏色': ['#FF4B4B', '#00CC96', '#1F77B4', '#9467BD'] # 高對比配色
+})
+
+# 計算座標軸顯示範圍 (解決級距太寬的問題)
+all_values = [val_relative, val_sotp, dcf_val, composite_price, current_price]
+y_min = min(all_values) * 0.95
+y_max = max(all_values) * 1.05
+
+# 畫長條圖
+bars = alt.Chart(df_plot).mark_bar(size=60, cornerRadiusTopLeft=5, cornerRadiusTopRight=5).encode(
+    x=alt.X('模型名稱:N', axis=alt.Axis(labelAngle=0, title=None)),
+    y=alt.Y('估值金額:Q', title='美金 ($)', scale=alt.Scale(domain=[y_min, y_max])),
+    color=alt.Color('顏色:N', scale=None)
+).properties(height=500)
+
+# 畫現價虛線 (亮橘色，加粗)
+price_line = alt.Chart(pd.DataFrame({'y': [current_price]})).mark_rule(
+    color='#FF8C00', strokeWidth=4, strokeDash=[8, 4]
+).encode(y='y:Q')
+
+# 現價標籤 (顯示在線的旁邊)
+price_label = alt.Chart(pd.DataFrame({'y': [current_price], 't': [f'➔ 目前現價: ${current_price:.2f}']})).mark_text(
+    align='left', dx=10, dy=-15, fontSize=18, fontWeight='bold', color='#FF8C00'
+).encode(y='y:Q', text='t:N')
+
+# 6. 呈現結果
+col1, col2 = st.columns([3, 1])
+
+with col1:
+    st.altair_chart(bars + price_line + price_label, use_container_width=True)
+
+with col2:
+    st.metric("目前股價", f"${current_price:.2f}")
+    st.metric("綜合合理價", f"${composite_price:.2f}")
+    
+    diff = ((current_price / composite_price) - 1) * 100
+    st.metric("溢價/折價 %", f"{diff:.2f}%", delta=f"{diff:.2f}%", delta_color="inverse")
+    
+    if current_price > composite_price:
+        st.error("⚠️ 目前股價偏高")
+    else:
+        st.success("✅ 具備安全邊際")
+
+st.info(f"💡 數據領會：目前現價與綜合目標價的距離為 {abs(current_price - composite_price):.2f} 美元。")
