@@ -71,8 +71,21 @@ price_line = alt.Chart(pd.DataFrame({'x': [current_price]})).mark_rule(
     color='#FF4B4B', strokeWidth=3
 ).encode(x='x:Q')
 
-# 標註紅線數值
+# 標註紅線數值 (修正縮進與括號)
 price_text = alt.Chart(pd.DataFrame({'x': [current_price], 'y': ['2. DCF 內在價值'], 't': [f'現價: ${current_price:.2f}']})).mark_text(
-            align='left', dx=5, color='#4a9eff', fontWeight='bold'
-        ).encode(x='x:Q', y='y:N', text='t:N')
-    align
+    align='left', 
+    dx=5, 
+    color='#FF4B4B', 
+    fontWeight='bold'
+).encode(x='x:Q', y='y:N', text='t:N')
+
+# 5. 最後把圖表組合起來顯示
+st.altair_chart(bars + price_line + price_text, use_container_width=True)
+
+# 6. 投資結論區
+st.divider()
+st.subheader("💡 監控小結")
+if current_price > val_sotp:
+    st.error(f"目前股價 ${current_price:.2f} 高於 SOTP 估值 ${val_sotp}，建議分批減碼或耐心等待。")
+else:
+    st.success(f"目前股價 ${current_price:.2f} 低於 SOTP 估值 ${val_sotp}，具備安全邊際。")
