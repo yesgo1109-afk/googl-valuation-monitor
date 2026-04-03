@@ -73,4 +73,6 @@ price_line = alt.Chart(pd.DataFrame({'x': [current_price]})).mark_rule(
 
 # 標註紅線數值
 price_text = alt.Chart(pd.DataFrame({'x': [current_price], 'y': ['2. DCF 內在價值'], 't': [f'現價: ${current_price:.2f}']})).mark_text(
+            align='left', dx=5, color='#4a9eff', fontWeight='bold'
+        ).encode(x='x:Q', y='y:N', text='t:N')
     align
