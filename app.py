@@ -251,8 +251,8 @@ plot_data = pd.DataFrame([
     {"模型": "綜合加權", "目標價": round(composite, 1)},
 ])
 
-y_min = min(plot_data["目標價"].min(), current_price) * 0.92
-y_max = max(plot_data["目標價"].max(), current_price) * 1.06
+y_min = 0
+y_max = max(plot_data["目標價"].max(), current_price) * 1.15
 
 bars = alt.Chart(plot_data).mark_bar(
     cornerRadiusTopLeft=5, cornerRadiusTopRight=5, size=55
