@@ -54,4 +54,4 @@ try:
     st.write(f"數據最後更新時間: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
     # 第一排：核心指標
-    col1, col2, col3, col4 = st.columns(4
+    col1, col2, col3, col4 = st.columns(4)
