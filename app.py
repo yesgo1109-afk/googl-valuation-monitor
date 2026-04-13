@@ -14,18 +14,27 @@ st.markdown("---")
 # ─────────────────────────────────────────
 # 2. 自動抓取（yfinance）
 # ─────────────────────────────────────────
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=21600)   # 6小時刷新一次，避免 Yahoo Finance 限流
 def get_financials():
     t    = yf.Ticker("GOOGL")
     info = t.info
 
-    price       = info.get("currentPrice") or info.get("regularMarketPrice", 297.0)
-    eps_ttm     = info.get("trailingEps", 10.81)
-    pe_ttm      = info.get("trailingPE", 15.8)
-    revenue_ttm = info.get("totalRevenue", 402e9) / 1e9
-    op_margin   = info.get("operatingMargins", 0.32) * 100
-    shares_b    = info.get("sharesOutstanding", 12e9) / 1e8
-    fcf         = info.get("freeCashflow", 73e9) / 1e9
+    price       = info.get("currentPrice") or info.get("regularMarketPrice") or 297.0
+    eps_ttm     = info.get("trailingEps")     or 10.81
+    pe_ttm      = info.get("trailingPE")      or 15.8
+    revenue_ttm = (info.get("totalRevenue")   or 402e9) / 1e9
+    op_margin   = (info.get("operatingMargins") or 0.32) * 100
+    fcf         = (info.get("freeCashflow")   or 73e9) / 1e9
+
+    # ── 修正①：股數單位明確化 ──
+    # sharesOutstanding 單位是「股」，直接保留，計算時再換算
+    shares_out  = info.get("sharesOutstanding") or 12e9   # 單位：股
+
+    # ── 修正②：加入淨現金（現金 - 負債） ──
+    # SOTP 算的是 EV（企業價值），需加淨現金才是股權價值
+    total_cash  = (info.get("totalCash")  or 95e9) / 1e9  # $B
+    total_debt  = (info.get("totalDebt")  or 13e9) / 1e9  # $B
+    net_cash    = total_cash - total_debt                  # $B
 
     fcf_growth = 0.7
     try:
@@ -41,14 +50,18 @@ def get_financials():
         pass
 
     return {
-        "price":        round(price, 2),
-        "eps_ttm":      round(eps_ttm, 2),
-        "pe_ttm":       round(pe_ttm, 1),
-        "revenue_ttm":  round(revenue_ttm, 1),
-        "op_margin":    round(op_margin, 1),
-        "shares_b":     round(shares_b, 1),
-        "fcf":          round(fcf, 1),
-        "fcf_growth":   round(fcf_growth, 1),
+        "price":        round(float(price), 2),
+        "eps_ttm":      round(float(eps_ttm), 2),
+        "pe_ttm":       round(float(pe_ttm), 1),
+        "revenue_ttm":  round(float(revenue_ttm), 1),
+        "op_margin":    round(float(op_margin), 1),
+        "shares_out":   float(shares_out),             # 單位：股（原始值）
+        "shares_b":     round(float(shares_out) / 1e8, 1),  # 億股（顯示用）
+        "fcf":          round(float(fcf), 1),
+        "fcf_growth":   round(float(fcf_growth), 1),
+        "net_cash":     round(float(net_cash), 1),     # $B，新增
+        "total_cash":   round(float(total_cash), 1),   # $B，新增
+        "total_debt":   round(float(total_debt), 1),   # $B，新增
         "search_ebitda": 95.0,   # 分部數據，yfinance 無法自動取得
         "cloud_rev":     58.7,   # 同上
     }
@@ -56,13 +69,19 @@ def get_financials():
 with st.spinner("自動抓取 GOOGL 最新財務數據中..."):
     try:
         d = get_financials()
-        st.success(f"數據已更新（每小時自動刷新）· 股價 ${d['price']}")
+        st.success(f"數據已更新（每6小時自動刷新）· 股價 ${d['price']}")
     except Exception as e:
-        st.warning(f"抓取失敗，使用預設值。錯誤：{e}")
+        # ── 修正③：更清楚的錯誤提示 ──
+        st.warning(
+            "⚠️ Yahoo Finance 暫時無法連線（可能是限流），目前顯示的是預設數據，**非即時數字**。\n\n"
+            "請稍後幾分鐘後重新整理頁面即可恢復。"
+        )
         d = {
             "price": 297.0, "eps_ttm": 10.81, "pe_ttm": 15.8,
-            "revenue_ttm": 402.8, "op_margin": 32.0, "shares_b": 120.0,
+            "revenue_ttm": 402.8, "op_margin": 32.0,
+            "shares_out": 12e9, "shares_b": 120.0,
             "fcf": 73.3, "fcf_growth": 0.7,
+            "net_cash": 82.0, "total_cash": 95.0, "total_debt": 13.0,
             "search_ebitda": 95.0, "cloud_rev": 58.7,
         }
 
@@ -206,6 +225,15 @@ col7.metric("FCF 年增速",   f"{d['fcf_growth']}%",
 col8.metric("流通股數",     f"{d['shares_b']}億股",
     help="市場上可以交易的股票總數\nSOTP 和 DCF 都需要除以股數\n才能從「公司總價值」換算成「每股價格\"")
 
+col9, col10 = st.sidebar.columns(2)
+col9.metric("淨現金",  f"${d['net_cash']}B",
+    help="淨現金 = 帳上現金 - 長期負債\n"
+         f"現金 ${d['total_cash']}B - 負債 ${d['total_debt']}B\n"
+         "SOTP 和 DCF 都已加入此數字\n"
+         "這是 GOOGL 被低估的重要來源之一")
+col10.metric("現金/負債", f"${d['total_cash']}/${d['total_debt']}B",
+    help=f"現金 ${d['total_cash']}B　負債 ${d['total_debt']}B\n淨現金 ${d['net_cash']}B\n除以股數後每股約 $50–70")
+
 # ─────────────────────────────────────────
 # 4. 估值計算
 # ─────────────────────────────────────────
@@ -214,14 +242,18 @@ col8.metric("流通股數",     f"{d['shares_b']}億股",
 val_relative = d["eps_ttm"] * pe_target
 
 # SOTP
-sotp_search  = d["search_ebitda"] * search_mult
-sotp_cloud   = d["cloud_rev"]     * cloud_mult
-sotp_youtube = youtube_val
-sotp_other   = 50.0
-sotp_total_b = sotp_search + sotp_cloud + sotp_youtube + sotp_other
-val_sotp     = sotp_total_b / d["shares_b"] * 10   # $/股
+# ── 修正②：EV 加總後，再加淨現金，才是股權價值 ──
+sotp_search   = d["search_ebitda"] * search_mult   # $B
+sotp_cloud    = d["cloud_rev"]     * cloud_mult    # $B
+sotp_youtube  = youtube_val                        # $B
+sotp_other    = 50.0                               # $B
+sotp_ev_total = sotp_search + sotp_cloud + sotp_youtube + sotp_other  # EV $B
+sotp_equity   = sotp_ev_total + d["net_cash"]      # 股權價值 $B（加回淨現金）
+# ── 修正①：單位明確：$B × 1e9 ÷ 股數（股） = $/股 ──
+val_sotp      = sotp_equity * 1e9 / d["shares_out"]
 
 # DCF
+# ── 修正①：同樣用 shares_out（股）換算 ──
 base_fcf        = d["fcf"]
 terminal_growth = 0.03
 total_pv        = 0.0
@@ -231,7 +263,8 @@ for t_yr in range(1, 11):
 terminal_cf  = base_fcf * ((1 + fcf_growth_dcf / 100) ** 10) * (1 + terminal_growth)
 terminal_val = terminal_cf / ((wacc / 100) - terminal_growth)
 total_pv    += terminal_val / ((1 + wacc / 100) ** 10)
-val_dcf      = total_pv / d["shares_b"] * 10        # $/股
+# total_pv 單位是 $B，× 1e9 ÷ 股數 = $/股
+val_dcf = (total_pv + d["net_cash"]) * 1e9 / d["shares_out"]
 
 # 綜合
 composite  = val_relative * 0.3 + val_dcf * 0.2 + val_sotp * 0.5
@@ -370,11 +403,19 @@ with st.expander("📂 SOTP 分部拆解明細"):
          "倍數": "直接估值",                       "估值": f"${sotp_youtube:.0f}B"},
         {"業務": "Other Bets",     "基礎": "Waymo 等保守估",
          "倍數": "—",                              "估值": f"${sotp_other:.0f}B"},
-        {"業務": "合計 → 每股",    "基礎": f"÷ {d['shares_b']:.0f}億股（自動）",
-         "倍數": "—",                              "估值": f"${sotp_total_b:.0f}B → ${val_sotp:.0f}/股"},
+        {"業務": "EV 小計",        "基礎": "四塊業務加總",
+         "倍數": "—",                              "估值": f"${sotp_ev_total:.0f}B"},
+        {"業務": "+ 淨現金 🤖自動", "基礎": f"現金 ${d['total_cash']:.0f}B - 負債 ${d['total_debt']:.0f}B",
+         "倍數": "直接加回",                       "估值": f"+${d['net_cash']:.0f}B"},
+        {"業務": "股權價值 → 每股", "基礎": f"÷ {d['shares_b']:.0f}億股（自動）",
+         "倍數": "—",                              "估值": f"${sotp_equity:.0f}B → ${val_sotp:.0f}/股"},
     ])
     st.dataframe(sotp_df, hide_index=True, use_container_width=True)
-    st.caption("⚠️手動預設 = Search EBITDA / Cloud Revenue 每季財報後需在側邊欄「估值假設」區更新倍數")
+    st.caption(
+        "EV（企業價值）= 業務估值加總　｜　"
+        "股權價值 = EV + 淨現金　｜　"
+        "GOOGL 帳上現金充裕，淨現金每股貢獻約 $50–70"
+    )
 
 st.markdown("---")
 
