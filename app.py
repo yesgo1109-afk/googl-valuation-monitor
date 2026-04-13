@@ -14,41 +14,44 @@ st.markdown("---")
 # ─────────────────────────────────────────
 # 2. 自動抓取（yfinance）
 # ─────────────────────────────────────────
-@st.cache_data(ttl=21600)   # 6小時刷新一次，避免 Yahoo Finance 限流
+@st.cache_data(ttl=21600)
 def get_financials():
-    t    = yf.Ticker("GOOGL")
-    info = t.info
+    t      = yf.Ticker("GOOGL")
+    info   = t.info
 
-    price       = info.get("currentPrice") or info.get("regularMarketPrice") or 297.0
-    eps_ttm     = info.get("trailingEps")     or 10.81
-    pe_ttm      = info.get("trailingPE")      or 15.8
-    revenue_ttm = (info.get("totalRevenue")   or 402e9) / 1e9
-    op_margin   = (info.get("operatingMargins") or 0.32) * 100
-    fcf         = (info.get("freeCashflow")   or 73e9) / 1e9
+    # ── 基本價格與獲利 ──
+    price       = float(info.get("currentPrice") or info.get("regularMarketPrice") or 317.0)
+    eps_ttm     = float(info.get("trailingEps")    or 10.81)
+    eps_fwd     = float(info.get("forwardEps")     or 12.50)   # 分析師預估下一年 EPS
+    pe_ttm      = float(info.get("trailingPE")     or 25.0)
+    pe_fwd      = float(info.get("forwardPE")      or 21.0)    # 市場實際用的是這個
+    revenue_ttm = float(info.get("totalRevenue")   or 402e9) / 1e9
+    op_margin   = float(info.get("operatingMargins") or 0.32) * 100
+    fcf         = float(info.get("freeCashflow")   or 73e9)  / 1e9
+    ebitda      = float(info.get("ebitda")         or 130e9) / 1e9  # 自動抓整體 EBITDA
 
-    # ── 修正：GOOGL + GOOG 兩個股票代號合計才是真正流通股數 ──
-    # yfinance 的 sharesOutstanding 只給單一股票，需要兩個加總
+    # ── 股數：GOOGL + GOOG 合計 ──
     try:
         t_goog       = yf.Ticker("GOOG")
         info_goog    = t_goog.info
-        shares_googl = info.get("sharesOutstanding")       or 6e9
-        shares_goog  = info_goog.get("sharesOutstanding")  or 6e9
-        shares_out   = shares_googl + shares_goog          # 合計，單位：股
+        shares_googl = float(info.get("sharesOutstanding")      or 6e9)
+        shares_goog  = float(info_goog.get("sharesOutstanding") or 6e9)
+        shares_out   = shares_googl + shares_goog
     except Exception:
-        shares_out   = 12e9   # 備用預設值
+        shares_out   = 12.05e9
 
-    # ── 修正②：加入淨現金（現金 - 負債） ──
-    # SOTP 算的是 EV（企業價值），需加淨現金才是股權價值
-    total_cash  = (info.get("totalCash")  or 95e9) / 1e9  # $B
-    total_debt  = (info.get("totalDebt")  or 13e9) / 1e9  # $B
-    net_cash    = total_cash - total_debt                  # $B
+    # ── 現金與負債 ──
+    total_cash = float(info.get("totalCash") or 95e9) / 1e9
+    total_debt = float(info.get("totalDebt") or 13e9) / 1e9
+    net_cash   = total_cash - total_debt
 
-    fcf_growth = 0.7
+    # ── FCF 增速（現金流量表） ──
+    fcf_growth = 1.0
     try:
-        cf     = t.cashflow
-        op_cf  = cf.loc["Operating Cash Flow"]
-        capex  = cf.loc["Capital Expenditure"]
-        fcf_q  = (op_cf + capex).dropna()
+        cf    = t.cashflow
+        op_cf = cf.loc["Operating Cash Flow"]
+        capex = cf.loc["Capital Expenditure"]
+        fcf_q = (op_cf + capex).dropna()
         if len(fcf_q) >= 2:
             fcf_growth = float(
                 (fcf_q.iloc[0] - fcf_q.iloc[1]) / abs(fcf_q.iloc[1]) * 100
@@ -56,40 +59,55 @@ def get_financials():
     except Exception:
         pass
 
+    # ── SOTP 分部數據：用總營收比例自動估算 ──
+    # 根據 Alphabet 財報各業務佔比（每年微調，但比寫死好）
+    # Cloud 約佔總營收 14.6%，Search+其他廣告約佔 63%
+    cloud_rev_est    = round(revenue_ttm * 0.146, 1)   # 自動估算 Cloud 年營收
+    search_ebitda_est = round(ebitda * 0.72, 1)         # Search 貢獻約 72% EBITDA
+
+    # ── EPS 成長率（分析師共識） ──
+    eps_growth = 0.0
+    if eps_ttm > 0 and eps_fwd > 0:
+        eps_growth = round((eps_fwd - eps_ttm) / eps_ttm * 100, 1)
+
     return {
-        "price":        round(float(price), 2),
-        "eps_ttm":      round(float(eps_ttm), 2),
-        "pe_ttm":       round(float(pe_ttm), 1),
-        "revenue_ttm":  round(float(revenue_ttm), 1),
-        "op_margin":    round(float(op_margin), 1),
-        "shares_out":   float(shares_out),             # 單位：股（原始值）
-        "shares_b":     round(float(shares_out) / 1e8, 1),  # 億股（顯示用）
-        "fcf":          round(float(fcf), 1),
-        "fcf_growth":   round(float(fcf_growth), 1),
-        "net_cash":     round(float(net_cash), 1),     # $B，新增
-        "total_cash":   round(float(total_cash), 1),   # $B，新增
-        "total_debt":   round(float(total_debt), 1),   # $B，新增
-        "search_ebitda": 95.0,   # 分部數據，yfinance 無法自動取得
-        "cloud_rev":     58.7,   # 同上
+        "price":         round(price, 2),
+        "eps_ttm":       round(eps_ttm, 2),
+        "eps_fwd":       round(eps_fwd, 2),
+        "eps_growth":    round(eps_growth, 1),
+        "pe_ttm":        round(pe_ttm, 1),
+        "pe_fwd":        round(pe_fwd, 1),
+        "revenue_ttm":   round(revenue_ttm, 1),
+        "op_margin":     round(op_margin, 1),
+        "ebitda":        round(ebitda, 1),
+        "shares_out":    shares_out,
+        "shares_b":      round(shares_out / 1e8, 1),
+        "fcf":           round(fcf, 1),
+        "fcf_growth":    round(fcf_growth, 1),
+        "net_cash":      round(net_cash, 1),
+        "total_cash":    round(total_cash, 1),
+        "total_debt":    round(total_debt, 1),
+        "cloud_rev":     cloud_rev_est,       # 自動估算（取代寫死）
+        "search_ebitda": search_ebitda_est,   # 自動估算（取代寫死）
     }
 
 with st.spinner("自動抓取 GOOGL 最新財務數據中..."):
     try:
         d = get_financials()
-        st.success(f"數據已更新（每6小時自動刷新）· 股價 ${d['price']}")
+        st.success(f"數據已更新（每6小時自動刷新）· 股價 ${d['price']}　Forward EPS ${d['eps_fwd']}　Forward P/E {d['pe_fwd']}x")
     except Exception as e:
-        # ── 修正③：更清楚的錯誤提示 ──
         st.warning(
-            "⚠️ Yahoo Finance 暫時無法連線（可能是限流），目前顯示的是預設數據，**非即時數字**。\n\n"
+            "⚠️ Yahoo Finance 暫時無法連線（可能是限流），目前顯示預設數據（**非即時**）。\n\n"
             "請稍後幾分鐘後重新整理頁面即可恢復。"
         )
         d = {
-            "price": 297.0, "eps_ttm": 10.81, "pe_ttm": 15.8,
-            "revenue_ttm": 402.8, "op_margin": 32.0,
-            "shares_out": 12e9, "shares_b": 120.0,
-            "fcf": 73.3, "fcf_growth": 0.7,
+            "price": 317.0, "eps_ttm": 10.81, "eps_fwd": 12.50,
+            "eps_growth": 15.6, "pe_ttm": 25.0, "pe_fwd": 21.0,
+            "revenue_ttm": 402.8, "op_margin": 32.0, "ebitda": 130.0,
+            "shares_out": 12.05e9, "shares_b": 120.5,
+            "fcf": 73.3, "fcf_growth": 1.0,
             "net_cash": 82.0, "total_cash": 95.0, "total_debt": 13.0,
-            "search_ebitda": 95.0, "cloud_rev": 58.7,
+            "cloud_rev": 58.8, "search_ebitda": 93.6,
         }
 
 # ─────────────────────────────────────────
@@ -127,17 +145,19 @@ st.sidebar.caption("依個人判斷調整，不確定就保留預設值")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("**📘 模型一：相對估值**")
-st.sidebar.caption("概念：把 GOOGL 的獲利能力，乘上市場願意給的倍數。\n就像房子估價：坪數（EPS）× 單價（P/E）= 總價。\n同業比較看誰便宜、誰貴。")
+st.sidebar.caption(
+    "概念：把 GOOGL 的獲利能力，乘上市場願意給的倍數。\n"
+    "現在改用「預估 EPS」，跟市場定價邏輯一致。"
+)
 pe_target = st.sidebar.slider(
-    "目標 P/E 倍數", 15.0, 35.0, 20.0,
+    "目標 P/E 倍數（對應 Forward EPS）", 18.0, 35.0, 24.0,
     help=(
-        "P/E = 股價 ÷ 每股盈餘（EPS）\n"
-        "代表你願意為公司每賺 $1，付多少錢。\n"
-        "P/E 20x = 願意付 $20 買每年賺 $1 的公司。\n\n"
-        "同業參考：Meta ~23x、Microsoft ~28x\n"
-        "GOOGL 因反壟斷風險通常折價，給 20x 合理。\n"
-        "往上調 → 估值變高（你認為 GOOGL 值更多）\n"
-        "往下調 → 估值變低（你認為風險更大）"
+        "現在用 Forward EPS（分析師預估下一年）× P/E\n"
+        "這才是市場實際定價的邏輯，不是 TTM。\n\n"
+        f"自動抓取：Forward EPS = ${d['eps_fwd']}，Forward P/E = {d['pe_fwd']}x\n\n"
+        "同業參考：Meta ~25x、Microsoft ~30x\n"
+        "GOOGL 目前市場給約 24–27x（AI 溢價）\n"
+        "往上調 → 估值變高；往下調 → 估值變低"
     )
 )
 
@@ -209,58 +229,57 @@ st.sidebar.markdown("---")
 st.sidebar.header("🤖 自動抓取數據（唯讀）")
 st.sidebar.caption("以下由 yfinance 自動更新，不需手動修改")
 
-# 用 metric 顯示，加上 help 說明
 col1, col2 = st.sidebar.columns(2)
-col1.metric("股價",         f"${d['price']}")
-col2.metric("EPS（TTM）",   f"${d['eps_ttm']}",
-    help="EPS = 每股盈餘\n公司全年淨利 ÷ 流通股數\n代表每股賺了多少錢\nTTM = 過去 12 個月滾動計算")
+col1.metric("股價", f"${d['price']}")
+col2.metric("Forward EPS", f"${d['eps_fwd']}",
+    help=f"分析師預估下一年每股盈餘\n相對估值現在用這個，不用落後的 TTM EPS\nTTM EPS = ${d['eps_ttm']}（過去12個月實際值）\n預估成長率 {d['eps_growth']}%")
 
 col3, col4 = st.sidebar.columns(2)
-col3.metric("P/E（TTM）",   f"{d['pe_ttm']}x",
-    help="本益比 = 股價 ÷ EPS\n代表你為每 $1 獲利付了多少錢\n越低代表越便宜（相對同業而言）\nTTM = 過去 12 個月實際數字")
-col4.metric("全年營收",     f"${d['revenue_ttm']}B")
+col3.metric("Forward P/E", f"{d['pe_fwd']}x",
+    help=f"市場用 Forward EPS 算出的本益比\n這才是股價實際反映的倍數\nTTM P/E = {d['pe_ttm']}x（落後指標，參考用）")
+col4.metric("TTM P/E", f"{d['pe_ttm']}x",
+    help="過去12個月實際EPS算出的本益比\n落後指標，了解歷史估值用")
 
 col5, col6 = st.sidebar.columns(2)
-col5.metric("營業利潤率",   f"{d['op_margin']}%",
-    help="營業利潤率 = 營業利潤 ÷ 營收\n代表每 $100 收入中有多少是真正的獲利\n32% 代表賺 $100 扣掉成本後剩 $32\n越高代表業務越有效率、護城河越深")
-col6.metric("自由現金流",   f"${d['fcf']}B",
-    help="FCF = 自由現金流\n= 營業現金流 - 資本支出\n代表公司實際可以自由動用的錢\n（不是帳面獲利，是真正進口袋的錢）\nFCF 是 DCF 估值的核心輸入")
+col5.metric("全年營收", f"${d['revenue_ttm']}B")
+col6.metric("Cloud 估算", f"${d['cloud_rev']}B",
+    help=f"由總營收 × 14.6% 自動估算\n（Alphabet 財報 Cloud 佔比約 14.6%）\n實際財報數字以手動核對為準")
 
 col7, col8 = st.sidebar.columns(2)
-col7.metric("FCF 年增速",   f"{d['fcf_growth']}%",
-    help="自由現金流相比去年同期的成長率\n門檻：≥ 12% 才支撐 DCF 樂觀假設\n目前 CapEx 暴增壓制了 FCF 成長\n這是 DCF 模型目前最大的風險點")
-col8.metric("流通股數",     f"{d['shares_b']}億股",
-    help="市場上可以交易的股票總數\nSOTP 和 DCF 都需要除以股數\n才能從「公司總價值」換算成「每股價格\"")
+col7.metric("營業利潤率", f"{d['op_margin']}%",
+    help="營業利潤率 = 營業利潤 ÷ 營收\n每 $100 收入扣成本後剩多少\n越高代表護城河越深")
+col8.metric("自由現金流", f"${d['fcf']}B",
+    help="FCF = 營業現金流 - 資本支出\n公司實際可自由動用的錢\nDCF 估值的核心輸入")
 
 col9, col10 = st.sidebar.columns(2)
-col9.metric("淨現金",  f"${d['net_cash']}B",
-    help="淨現金 = 帳上現金 - 長期負債\n"
-         f"現金 ${d['total_cash']}B - 負債 ${d['total_debt']}B\n"
-         "SOTP 和 DCF 都已加入此數字\n"
-         "這是 GOOGL 被低估的重要來源之一")
-col10.metric("現金/負債", f"${d['total_cash']}/${d['total_debt']}B",
-    help=f"現金 ${d['total_cash']}B　負債 ${d['total_debt']}B\n淨現金 ${d['net_cash']}B\n除以股數後每股約 $50–70")
+col9.metric("FCF 年增速", f"{d['fcf_growth']}%",
+    help="FCF 相比去年同期成長率\n門檻 ≥ 12% 支撐 DCF 樂觀假設")
+col10.metric("淨現金", f"${d['net_cash']}B",
+    help=f"現金 ${d['total_cash']}B - 負債 ${d['total_debt']}B\nSOTP 和 DCF 都已自動加入此數字")
+
+col11, col12 = st.sidebar.columns(2)
+col11.metric("流通股數", f"{d['shares_b']}億股",
+    help="GOOGL + GOOG 兩類股合計\nSOTP 和 DCF 都用此數字換算每股價格")
+col12.metric("EPS 成長率", f"{d['eps_growth']}%",
+    help=f"Forward EPS vs TTM EPS 的成長率\nTTM ${d['eps_ttm']} → Forward ${d['eps_fwd']}\n代表分析師預期獲利成長幅度")
 
 # ─────────────────────────────────────────
 # 4. 估值計算
 # ─────────────────────────────────────────
 
-# 相對估值
-val_relative = d["eps_ttm"] * pe_target
+# 相對估值：改用 Forward EPS（分析師預估），跟市場邏輯一致
+val_relative = d["eps_fwd"] * pe_target
 
-# SOTP
-# ── 修正②：EV 加總後，再加淨現金，才是股權價值 ──
-sotp_search   = d["search_ebitda"] * search_mult   # $B
-sotp_cloud    = d["cloud_rev"]     * cloud_mult    # $B
-sotp_youtube  = youtube_val                        # $B
-sotp_other    = 50.0                               # $B
-sotp_ev_total = sotp_search + sotp_cloud + sotp_youtube + sotp_other  # EV $B
-sotp_equity   = sotp_ev_total + d["net_cash"]      # 股權價值 $B（加回淨現金）
-# ── 修正①：單位明確：$B × 1e9 ÷ 股數（股） = $/股 ──
-val_sotp      = sotp_equity * 1e9 / d["shares_out"]
+# SOTP：Cloud Rev 和 Search EBITDA 現在都是自動估算值
+sotp_search   = d["search_ebitda"] * search_mult
+sotp_cloud    = d["cloud_rev"]     * cloud_mult
+sotp_youtube  = youtube_val
+sotp_other    = 50.0
+sotp_ev_total = sotp_search + sotp_cloud + sotp_youtube + sotp_other
+sotp_equity   = sotp_ev_total + d["net_cash"]
+val_sotp      = sotp_equity * 1e9 / d["shares_out"]   # $B × 1e9 ÷ 股 = $/股
 
-# DCF
-# ── 修正①：同樣用 shares_out（股）換算 ──
+# DCF：FCF 自動抓取，加淨現金
 base_fcf        = d["fcf"]
 terminal_growth = 0.03
 total_pv        = 0.0
@@ -270,10 +289,9 @@ for t_yr in range(1, 11):
 terminal_cf  = base_fcf * ((1 + fcf_growth_dcf / 100) ** 10) * (1 + terminal_growth)
 terminal_val = terminal_cf / ((wacc / 100) - terminal_growth)
 total_pv    += terminal_val / ((1 + wacc / 100) ** 10)
-# total_pv 單位是 $B，× 1e9 ÷ 股數 = $/股
-val_dcf = (total_pv + d["net_cash"]) * 1e9 / d["shares_out"]
+val_dcf      = (total_pv + d["net_cash"]) * 1e9 / d["shares_out"]
 
-# 綜合
+# 綜合加權
 composite  = val_relative * 0.3 + val_dcf * 0.2 + val_sotp * 0.5
 upside_pct = (composite - d["price"]) / d["price"] * 100
 
