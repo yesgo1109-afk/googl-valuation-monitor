@@ -26,9 +26,16 @@ def get_financials():
     op_margin   = (info.get("operatingMargins") or 0.32) * 100
     fcf         = (info.get("freeCashflow")   or 73e9) / 1e9
 
-    # ── 修正①：股數單位明確化 ──
-    # sharesOutstanding 單位是「股」，直接保留，計算時再換算
-    shares_out  = info.get("sharesOutstanding") or 12e9   # 單位：股
+    # ── 修正：GOOGL + GOOG 兩個股票代號合計才是真正流通股數 ──
+    # yfinance 的 sharesOutstanding 只給單一股票，需要兩個加總
+    try:
+        t_goog       = yf.Ticker("GOOG")
+        info_goog    = t_goog.info
+        shares_googl = info.get("sharesOutstanding")       or 6e9
+        shares_goog  = info_goog.get("sharesOutstanding")  or 6e9
+        shares_out   = shares_googl + shares_goog          # 合計，單位：股
+    except Exception:
+        shares_out   = 12e9   # 備用預設值
 
     # ── 修正②：加入淨現金（現金 - 負債） ──
     # SOTP 算的是 EV（企業價值），需加淨現金才是股權價值
