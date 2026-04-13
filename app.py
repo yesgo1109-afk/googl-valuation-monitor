@@ -99,34 +99,112 @@ st.sidebar.markdown("---")
 st.sidebar.header("⚙️ 估值假設（可調整）")
 st.sidebar.caption("依個人判斷調整，不確定就保留預設值")
 
-pe_target      = st.sidebar.slider("相對估值：目標 P/E", 15.0, 35.0, 20.0,
-                     help="同業 Meta/MSFT 約 22–28x，GOOGL 因風險折價給 20x")
-cloud_mult     = st.sidebar.slider("SOTP：Cloud EV/Sales 倍數", 8.0, 25.0, 14.0,
-                     help="AWS 約 15–18x，Google Cloud 稍低，給 14x")
-search_mult    = st.sidebar.slider("SOTP：Search EV/EBITDA 倍數", 10.0, 25.0, 16.0,
-                     help="廣告業務穩定現金流，給 16x")
-youtube_val    = st.sidebar.slider("SOTP：YouTube 估值 ($B)", 300.0, 900.0, 600.0,
-                     help="廣告+訂閱年收 $60B+，約 10x EV/Sales = $600B")
-fcf_growth_dcf = st.sidebar.slider("DCF：FCF 預期成長率 (%)", 5.0, 25.0, 13.0,
-                     help="Cloud 拉動，基本情境 13%")
-wacc           = st.sidebar.slider("DCF：折現率 WACC (%)", 7.0, 13.0, 9.5, step=0.1,
-                     help="大型科技股通常 9–10%")
+st.sidebar.markdown("---")
+st.sidebar.markdown("**📘 模型一：相對估值**")
+st.sidebar.caption("概念：把 GOOGL 的獲利能力，乘上市場願意給的倍數。\n就像房子估價：坪數（EPS）× 單價（P/E）= 總價。\n同業比較看誰便宜、誰貴。")
+pe_target = st.sidebar.slider(
+    "目標 P/E 倍數", 15.0, 35.0, 20.0,
+    help=(
+        "P/E = 股價 ÷ 每股盈餘（EPS）\n"
+        "代表你願意為公司每賺 $1，付多少錢。\n"
+        "P/E 20x = 願意付 $20 買每年賺 $1 的公司。\n\n"
+        "同業參考：Meta ~23x、Microsoft ~28x\n"
+        "GOOGL 因反壟斷風險通常折價，給 20x 合理。\n"
+        "往上調 → 估值變高（你認為 GOOGL 值更多）\n"
+        "往下調 → 估值變低（你認為風險更大）"
+    )
+)
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("**📘 模型二：SOTP（分部加總）**")
+st.sidebar.caption("概念：把 GOOGL 拆成四塊業務分別估值，再加總。\n就像一棟大樓：每層樓分開賣，總和就是整棟價值。\n這是機構法人最常用的方法。")
+cloud_mult = st.sidebar.slider(
+    "Cloud EV/Sales 倍數", 8.0, 25.0, 14.0,
+    help=(
+        "EV/Sales = 企業價值 ÷ 年營收\n"
+        "代表市場願意為每 $1 收入付多少錢。\n"
+        "Cloud 是高成長業務，所以倍數比廣告高。\n\n"
+        "同業參考：AWS ~15–18x、Azure ~12–16x\n"
+        "Google Cloud 市占較低，給 14x 保守合理。\n"
+        "往上調 → Cloud 業務估值變高（你更看好 AI）\n"
+        "往下調 → Cloud 業務估值變低（你認為競爭激烈）"
+    )
+)
+search_mult = st.sidebar.slider(
+    "Search EV/EBITDA 倍數", 10.0, 25.0, 16.0,
+    help=(
+        "EV/EBITDA = 企業價值 ÷ 稅息折舊前盈餘\n"
+        "比 P/E 更能反映業務本身的獲利能力。\n"
+        "Search 是穩定現金牛，給 16x 屬合理中間值。\n\n"
+        "往上調 → Search 業務估值變高（你認為護城河牢固）\n"
+        "往下調 → Search 業務估值變低（你擔心 AI 侵蝕廣告）"
+    )
+)
+youtube_val = st.sidebar.slider(
+    "YouTube 直接估值 ($B)", 300.0, 900.0, 600.0,
+    help=(
+        "YouTube 廣告 + 訂閱年收約 $60B+\n"
+        "按 10x EV/Sales 估約 $600B。\n"
+        "Netflix 市值約 $350B（但只有訂閱），\n"
+        "YouTube 同時有廣告收入，$600B 屬保守。\n\n"
+        "往上調 → 你認為 YouTube 更像媒體龍頭\n"
+        "往下調 → 你擔心短影音競爭（TikTok）"
+    )
+)
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("**📘 模型三：DCF（現金流折現）**")
+st.sidebar.caption("概念：把公司未來 10 年賺的錢，全部折算回今天的價值。\n就像反推：「這家公司今天值多少，才合理？」\n對假設最敏感，兩個數字差一點，估值差很多。")
+fcf_growth_dcf = st.sidebar.slider(
+    "FCF 預期年成長率 (%)", 5.0, 25.0, 13.0,
+    help=(
+        "FCF（自由現金流）= 公司實際可以自由使用的錢\n"
+        "= 營業現金流 - 資本支出（蓋機房、買伺服器等）\n\n"
+        "這個滑桿：你預期未來 10 年 FCF 每年成長多少？\n"
+        "Cloud 加速 → FCF 成長快 → 往上調\n"
+        "CapEx 持續暴增 → FCF 被壓制 → 往下調\n\n"
+        "基本情境 13%；樂觀 18%；悲觀 8%"
+    )
+)
+wacc = st.sidebar.slider(
+    "折現率 WACC (%)", 7.0, 13.0, 9.5, step=0.1,
+    help=(
+        "WACC = 加權平均資金成本\n"
+        "代表你要求這筆投資的最低年報酬率。\n"
+        "也代表「未來的錢折算回今天」的折扣力道。\n\n"
+        "WACC 越高 → 未來的錢今天越不值錢 → 估值越低\n"
+        "WACC 越低 → 未來的錢今天越值錢 → 估值越高\n\n"
+        "大型科技股通常 9–10%\n"
+        "升息環境 → 往上調；降息環境 → 往下調"
+    )
+)
 
 st.sidebar.markdown("---")
 st.sidebar.header("🤖 自動抓取數據（唯讀）")
 st.sidebar.caption("以下由 yfinance 自動更新，不需手動修改")
-st.sidebar.markdown(f"""
-| 項目 | 數值 |
-|------|------|
-| 股價 | ${d['price']} |
-| EPS（TTM） | ${d['eps_ttm']} |
-| P/E（TTM） | {d['pe_ttm']}x |
-| 全年營收 | ${d['revenue_ttm']}B |
-| 營業利潤率 | {d['op_margin']}% |
-| 自由現金流 | ${d['fcf']}B |
-| FCF 年增速 | {d['fcf_growth']}% |
-| 流通股數 | {d['shares_b']}億股 |
-""")
+
+# 用 metric 顯示，加上 help 說明
+col1, col2 = st.sidebar.columns(2)
+col1.metric("股價",         f"${d['price']}")
+col2.metric("EPS（TTM）",   f"${d['eps_ttm']}",
+    help="EPS = 每股盈餘\n公司全年淨利 ÷ 流通股數\n代表每股賺了多少錢\nTTM = 過去 12 個月滾動計算")
+
+col3, col4 = st.sidebar.columns(2)
+col3.metric("P/E（TTM）",   f"{d['pe_ttm']}x",
+    help="本益比 = 股價 ÷ EPS\n代表你為每 $1 獲利付了多少錢\n越低代表越便宜（相對同業而言）\nTTM = 過去 12 個月實際數字")
+col4.metric("全年營收",     f"${d['revenue_ttm']}B")
+
+col5, col6 = st.sidebar.columns(2)
+col5.metric("營業利潤率",   f"{d['op_margin']}%",
+    help="營業利潤率 = 營業利潤 ÷ 營收\n代表每 $100 收入中有多少是真正的獲利\n32% 代表賺 $100 扣掉成本後剩 $32\n越高代表業務越有效率、護城河越深")
+col6.metric("自由現金流",   f"${d['fcf']}B",
+    help="FCF = 自由現金流\n= 營業現金流 - 資本支出\n代表公司實際可以自由動用的錢\n（不是帳面獲利，是真正進口袋的錢）\nFCF 是 DCF 估值的核心輸入")
+
+col7, col8 = st.sidebar.columns(2)
+col7.metric("FCF 年增速",   f"{d['fcf_growth']}%",
+    help="自由現金流相比去年同期的成長率\n門檻：≥ 12% 才支撐 DCF 樂觀假設\n目前 CapEx 暴增壓制了 FCF 成長\n這是 DCF 模型目前最大的風險點")
+col8.metric("流通股數",     f"{d['shares_b']}億股",
+    help="市場上可以交易的股票總數\nSOTP 和 DCF 都需要除以股數\n才能從「公司總價值」換算成「每股價格\"")
 
 # ─────────────────────────────────────────
 # 4. 估值計算
@@ -211,14 +289,20 @@ hs, ts = model_health(checks_s)
 # 6. 頂部摘要
 # ─────────────────────────────────────────
 c1, c2, c3, c4, c5, c6 = st.columns(6)
-c1.metric("目前股價",   f"${d['price']:.2f}")
-c2.metric("EPS（TTM）", f"${d['eps_ttm']:.2f}")
-c3.metric("相對估值",   f"${val_relative:.0f}")
-c4.metric("DCF 估值",   f"${val_dcf:.0f}")
-c5.metric("SOTP 估值",  f"${val_sotp:.0f}")
+c1.metric("目前股價",   f"${d['price']:.2f}",
+    help="即時股價，每小時自動更新（來源：Yahoo Finance）")
+c2.metric("EPS（TTM）", f"${d['eps_ttm']:.2f}",
+    help="每股盈餘（過去 12 個月）\n相對估值的核心輸入：股價 = EPS × P/E 倍數")
+c3.metric("相對估值",   f"${val_relative:.0f}",
+    help="模型一：相對估值\n= EPS × 你設定的目標 P/E\n邏輯：跟 Meta、MSFT 等同業比較，\n看 GOOGL 是貴還是便宜")
+c4.metric("DCF 估值",   f"${val_dcf:.0f}",
+    help="模型二：現金流折現（DCF）\n把未來 10 年的 FCF 全部折算回今天的價值\n對「成長率」和「折現率 WACC」假設非常敏感\n這兩個數字差 1%，估值可能差 15%")
+c5.metric("SOTP 估值",  f"${val_sotp:.0f}",
+    help="模型三：分部加總（SOTP）\nSearch + Cloud + YouTube + Other Bets 分別估值後加總\n機構法人最常用，適合業務多元的大型公司\nCloud 增速越快，這個估值越高")
 c6.metric("綜合目標價", f"${composite:.0f}",
-          delta=f"{'▲' if upside_pct>0 else '▼'} {abs(upside_pct):.1f}%",
-          delta_color="normal" if upside_pct > 0 else "inverse")
+    delta=f"{'▲' if upside_pct>0 else '▼'} {abs(upside_pct):.1f}%",
+    delta_color="normal" if upside_pct > 0 else "inverse",
+    help="三種模型加權平均：\n相對估值 30% + DCF 20% + SOTP 50%\n▲ = 股價低於合理估值（潛在上漲空間）\n▼ = 股價高於合理估值（已反映未來預期）")
 
 st.markdown("---")
 
