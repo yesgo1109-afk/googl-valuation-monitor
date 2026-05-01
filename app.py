@@ -6,7 +6,7 @@ import altair as alt
 # ─────────────────────────────────────────
 # ★ 每季財報後只需更新這裡 ★
 # ─────────────────────────────────────────
-LATEST_QUARTER   = "Q4 2025"          # 目前是哪一季
+LATEST_QUARTER   = "Q1 2026"          # 目前是哪一季
 CLOUD_GROWTH_DEFAULT  = 63.0          # Cloud YoY 增速（%）
 SEARCH_GROWTH_DEFAULT = 19.0          # Search YoY 增速（%）
 # 來源：investors.abc.xyz → Earnings → 最新 Press Release
