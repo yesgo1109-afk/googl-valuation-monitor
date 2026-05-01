@@ -6,9 +6,9 @@ import altair as alt
 # ─────────────────────────────────────────
 # ★ 每季財報後只需更新這裡 ★
 # ─────────────────────────────────────────
-LATEST_QUARTER   = "Q1 2026"          # 目前是哪一季
-CLOUD_GROWTH_DEFAULT  = 63.0          # Cloud YoY 增速（%）
-SEARCH_GROWTH_DEFAULT = 19.0          # Search YoY 增速（%）
+LATEST_QUARTER        = "Q1 2026"     # 目前是哪一季
+CLOUD_GROWTH_DEFAULT  = 63.0          # Cloud YoY 增速（%）← Q1 2026 實際值
+SEARCH_GROWTH_DEFAULT = 19.0          # Search YoY 增速（%）← Q1 2026 實際值
 # 來源：investors.abc.xyz → Earnings → 最新 Press Release
 # ─────────────────────────────────────────
 
@@ -75,7 +75,8 @@ def get_financials():
         pass
 
     # SOTP 分部估算
-    cloud_rev_est     = round(revenue_ttm * 0.146, 1)
+    # Cloud 佔總營收比例：Q1 2026 實際為 $20.03B/$109.9B = 18.2%（從 14.6% 更新）
+    cloud_rev_est     = round(revenue_ttm * 0.182, 1)
     search_ebitda_est = round(ebitda * 0.72, 1)
 
     # EPS 成長率
@@ -120,13 +121,13 @@ with st.spinner("自動抓取 GOOGL 最新財務數據中..."):
             "請稍後幾分鐘後重新整理頁面即可恢復。"
         )
         d = {
-            "price": 317.0, "eps_ttm": 10.81, "eps_fwd": 12.50,
-            "eps_growth": 15.6, "pe_ttm": 25.0, "pe_fwd": 21.0,
-            "revenue_ttm": 402.8, "op_margin": 32.0, "ebitda": 130.0,
+            "price": 384.8, "eps_ttm": 13.53, "eps_fwd": 14.50,
+            "eps_growth": 7.2, "pe_ttm": 28.4, "pe_fwd": 26.5,
+            "revenue_ttm": 429.0, "op_margin": 36.1, "ebitda": 155.0,
             "shares_out": 12.05e9, "shares_b": 120.5,
-            "fcf": 73.3, "fcf_growth": 1.0,
-            "net_cash": 82.0, "total_cash": 95.0, "total_debt": 13.0,
-            "cloud_rev": 58.8, "search_ebitda": 93.6,
+            "fcf": 75.0, "fcf_growth": 5.0,
+            "net_cash": 88.0, "total_cash": 101.0, "total_debt": 13.0,
+            "cloud_rev": 78.1, "search_ebitda": 111.6,
         }
 
 # ─────────────────────────────────────────
@@ -169,13 +170,14 @@ st.sidebar.caption(
     "現在改用「預估 EPS」，跟市場定價邏輯一致。"
 )
 pe_target = st.sidebar.slider(
-    "目標 P/E 倍數（對應 Forward EPS）", 18.0, 35.0, 24.0,
+    "目標 P/E 倍數（對應 Forward EPS）", 18.0, 35.0, 26.0,
     help=(
         "現在用 Forward EPS（分析師預估下一年）× P/E\n"
         "這才是市場實際定價的邏輯，不是 TTM。\n\n"
         f"自動抓取：Forward EPS = ${d['eps_fwd']}，Forward P/E = {d['pe_fwd']}x\n\n"
-        "同業參考：Meta ~25x、Microsoft ~30x\n"
-        "GOOGL 目前市場給約 24–27x（AI 溢價）\n"
+        "Q1 2026 後市場重新定價：Cloud 63% 增速超越 AWS/Azure\n"
+        "同業：Meta ~25x、Microsoft ~30x\n"
+        "GOOGL 建議 26–28x（AI 基礎設施溢價）\n"
         "往上調 → 估值變高；往下調 → 估值變低"
     )
 )
@@ -184,15 +186,16 @@ st.sidebar.markdown("---")
 st.sidebar.markdown("**📘 模型二：SOTP（分部加總）**")
 st.sidebar.caption("概念：把 GOOGL 拆成四塊業務分別估值，再加總。\n就像一棟大樓：每層樓分開賣，總和就是整棟價值。\n這是機構法人最常用的方法。")
 cloud_mult = st.sidebar.slider(
-    "Cloud EV/Sales 倍數", 8.0, 25.0, 14.0,
+    "Cloud EV/Sales 倍數", 8.0, 25.0, 16.0,
     help=(
         "EV/Sales = 企業價值 ÷ 年營收\n"
-        "代表市場願意為每 $1 收入付多少錢。\n"
-        "Cloud 是高成長業務，所以倍數比廣告高。\n\n"
-        "同業參考：AWS ~15–18x、Azure ~12–16x\n"
-        "Google Cloud 市占較低，給 14x 保守合理。\n"
-        "往上調 → Cloud 業務估值變高（你更看好 AI）\n"
-        "往下調 → Cloud 業務估值變低（你認為競爭激烈）"
+        "代表市場願意為每 $1 收入付多少錢。\n\n"
+        "Q1 2026 更新：Cloud 利潤率從 17.8% 跳升至 32.9%\n"
+        "已接近 AWS 水準，倍數應往上修正。\n\n"
+        "同業參考：AWS ~15–18x、Azure ~14–17x\n"
+        "Google Cloud 建議 16–18x（利潤率大幅改善後）\n"
+        "往上調 → Cloud 業務估值變高\n"
+        "往下調 → Cloud 業務估值變低"
     )
 )
 search_mult = st.sidebar.slider(
@@ -221,14 +224,14 @@ st.sidebar.markdown("---")
 st.sidebar.markdown("**📘 模型三：DCF（現金流折現）**")
 st.sidebar.caption("概念：把公司未來 10 年賺的錢，全部折算回今天的價值。\n就像反推：「這家公司今天值多少，才合理？」\n對假設最敏感，兩個數字差一點，估值差很多。")
 fcf_growth_dcf = st.sidebar.slider(
-    "FCF 預期年成長率 (%)", 5.0, 25.0, 13.0,
+    "FCF 預期年成長率 (%)", 5.0, 25.0, 11.0,
     help=(
-        "FCF（自由現金流）= 公司實際可以自由使用的錢\n"
-        "= 營業現金流 - 資本支出（蓋機房、買伺服器等）\n\n"
-        "這個滑桿：你預期未來 10 年 FCF 每年成長多少？\n"
-        "Cloud 加速 → FCF 成長快 → 往上調\n"
-        "CapEx 持續暴增 → FCF 被壓制 → 往下調\n\n"
-        "基本情境 13%；樂觀 18%；悲觀 8%"
+        "FCF = 營業現金流 - 資本支出\n\n"
+        "Q1 2026 更新：CapEx 指引上調至 $180–190B\n"
+        "短期 FCF 成長受壓，但 Cloud 收入能見度大增\n"
+        "（Cloud 積壓訂單 $462B，50% 將在 24 個月內轉為收入）\n\n"
+        "建議：短期保守 10–12%，中期樂觀 15%+\n"
+        "預設值調降至 11%（CapEx 持續擴張壓力）"
     )
 )
 wacc = st.sidebar.slider(
@@ -475,12 +478,13 @@ history = pd.DataFrame([
     {"季度": "Q2'24", "Cloud增速": 29, "Search增速": 14, "FCF增速":  6, "Cloud利潤率": 11, "股價": 175, "相對估值": 175, "DCF估值": 172, "SOTP估值": 182},
     {"季度": "Q3'24", "Cloud增速": 35, "Search增速": 12, "FCF增速":  5, "Cloud利潤率": 13, "股價": 168, "相對估值": 178, "DCF估值": 175, "SOTP估值": 195},
     {"季度": "Q4'24", "Cloud增速": 30, "Search增速": 13, "FCF增速": 10, "Cloud利潤率": 14, "股價": 190, "相對估值": 185, "DCF估值": 185, "SOTP估值": 210},
-    # ↓ 最新季度：Cloud/Search 增速來自手動輸入，其餘自動計算
-    {"季度": "Q4'25",
+    {"季度": "Q4'25", "Cloud增速": 48, "Search增速": 17, "FCF增速":  1, "Cloud利潤率": 17, "股價": 343, "相對估值": 270, "DCF估值": 230, "SOTP估值": 310},
+    # ↓ 最新季度 Q1 2026：Cloud/Search 增速來自手動輸入，其餘自動計算
+    {"季度": "Q1'26",
      "Cloud增速":   round(cloud_growth, 1),
      "Search增速":  round(search_growth, 1),
      "FCF增速":     round(d["fcf_growth"], 1),
-     "Cloud利潤率": 17,
+     "Cloud利潤率": 32.9,
      "股價":        d["price"],
      "相對估值":    round(val_relative),
      "DCF估值":     round(val_dcf),
