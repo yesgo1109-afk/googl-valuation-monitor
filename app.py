@@ -4,48 +4,64 @@ import pandas as pd
 import altair as alt
 
 # ─────────────────────────────────────────
+# ★ 每季財報後只需更新這裡 ★
+# ─────────────────────────────────────────
+LATEST_QUARTER   = "Q4 2025"          # 目前是哪一季
+CLOUD_GROWTH_DEFAULT  = 48.0          # Cloud YoY 增速（%）
+SEARCH_GROWTH_DEFAULT = 17.0          # Search YoY 增速（%）
+# 來源：investors.abc.xyz → Earnings → 最新 Press Release
+# ─────────────────────────────────────────
+
+# ─────────────────────────────────────────
 # 1. 基本設定
 # ─────────────────────────────────────────
 st.set_page_config(page_title="GOOGL 估值監控", layout="wide")
 st.title("Alphabet (GOOGL) 估值監控儀表板")
-st.caption("財務數據自動抓取 · 每季只需手動填 2 個數字")
+st.caption("財務數據自動抓取 · 每季只需更新程式頂部 2 個數字")
 st.markdown("---")
 
 # ─────────────────────────────────────────
 # 2. 自動抓取（yfinance）
 # ─────────────────────────────────────────
+def safe_float(val, default):
+    """安全轉換，避免 None 或異常值導致 TypeError"""
+    try:
+        result = float(val)
+        if result != result:   # NaN 檢查
+            return default
+        return result
+    except (TypeError, ValueError):
+        return default
+
 @st.cache_data(ttl=21600)
 def get_financials():
-    t      = yf.Ticker("GOOGL")
-    info   = t.info
+    t    = yf.Ticker("GOOGL")
+    info = t.info
 
-    # ── 基本價格與獲利 ──
-    price       = float(info.get("currentPrice") or info.get("regularMarketPrice") or 317.0)
-    eps_ttm     = float(info.get("trailingEps")    or 10.81)
-    eps_fwd     = float(info.get("forwardEps")     or 12.50)   # 分析師預估下一年 EPS
-    pe_ttm      = float(info.get("trailingPE")     or 25.0)
-    pe_fwd      = float(info.get("forwardPE")      or 21.0)    # 市場實際用的是這個
-    revenue_ttm = float(info.get("totalRevenue")   or 402e9) / 1e9
-    op_margin   = float(info.get("operatingMargins") or 0.32) * 100
-    fcf         = float(info.get("freeCashflow")   or 73e9)  / 1e9
-    ebitda      = float(info.get("ebitda")         or 130e9) / 1e9  # 自動抓整體 EBITDA
+    price       = safe_float(info.get("currentPrice") or info.get("regularMarketPrice"), 317.0)
+    eps_ttm     = safe_float(info.get("trailingEps"),   10.81)
+    eps_fwd     = safe_float(info.get("forwardEps"),    12.50)
+    pe_ttm      = safe_float(info.get("trailingPE"),    25.0)
+    pe_fwd      = safe_float(info.get("forwardPE"),     21.0)
+    revenue_ttm = safe_float(info.get("totalRevenue"),  402e9) / 1e9
+    op_margin   = safe_float(info.get("operatingMargins"), 0.32) * 100
+    fcf         = safe_float(info.get("freeCashflow"),  73e9)  / 1e9
+    ebitda      = safe_float(info.get("ebitda"),        130e9) / 1e9
+    total_cash  = safe_float(info.get("totalCash"),     95e9)  / 1e9
+    total_debt  = safe_float(info.get("totalDebt"),     13e9)  / 1e9
+    net_cash    = total_cash - total_debt
 
-    # ── 股數：GOOGL + GOOG 合計 ──
+    # 股數：GOOGL + GOOG 合計
     try:
         t_goog       = yf.Ticker("GOOG")
         info_goog    = t_goog.info
-        shares_googl = float(info.get("sharesOutstanding")      or 6e9)
-        shares_goog  = float(info_goog.get("sharesOutstanding") or 6e9)
+        shares_googl = safe_float(info.get("sharesOutstanding"),      6e9)
+        shares_goog  = safe_float(info_goog.get("sharesOutstanding"), 6e9)
         shares_out   = shares_googl + shares_goog
     except Exception:
         shares_out   = 12.05e9
 
-    # ── 現金與負債 ──
-    total_cash = float(info.get("totalCash") or 95e9) / 1e9
-    total_debt = float(info.get("totalDebt") or 13e9) / 1e9
-    net_cash   = total_cash - total_debt
-
-    # ── FCF 增速（現金流量表） ──
+    # FCF 增速
     fcf_growth = 1.0
     try:
         cf    = t.cashflow
@@ -53,22 +69,20 @@ def get_financials():
         capex = cf.loc["Capital Expenditure"]
         fcf_q = (op_cf + capex).dropna()
         if len(fcf_q) >= 2:
-            fcf_growth = float(
-                (fcf_q.iloc[0] - fcf_q.iloc[1]) / abs(fcf_q.iloc[1]) * 100
-            )
+            raw = float((fcf_q.iloc[0] - fcf_q.iloc[1]) / abs(fcf_q.iloc[1]) * 100)
+            fcf_growth = raw if raw == raw else 1.0   # NaN 防護
     except Exception:
         pass
 
-    # ── SOTP 分部數據：用總營收比例自動估算 ──
-    # 根據 Alphabet 財報各業務佔比（每年微調，但比寫死好）
-    # Cloud 約佔總營收 14.6%，Search+其他廣告約佔 63%
-    cloud_rev_est    = round(revenue_ttm * 0.146, 1)   # 自動估算 Cloud 年營收
-    search_ebitda_est = round(ebitda * 0.72, 1)         # Search 貢獻約 72% EBITDA
+    # SOTP 分部估算
+    cloud_rev_est     = round(revenue_ttm * 0.146, 1)
+    search_ebitda_est = round(ebitda * 0.72, 1)
 
-    # ── EPS 成長率（分析師共識） ──
-    eps_growth = 0.0
-    if eps_ttm > 0 and eps_fwd > 0:
-        eps_growth = round((eps_fwd - eps_ttm) / eps_ttm * 100, 1)
+    # EPS 成長率
+    try:
+        eps_growth = round((eps_fwd - eps_ttm) / eps_ttm * 100, 1) if eps_ttm > 0 else 0.0
+    except Exception:
+        eps_growth = 0.0
 
     return {
         "price":         round(price, 2),
@@ -87,17 +101,22 @@ def get_financials():
         "net_cash":      round(net_cash, 1),
         "total_cash":    round(total_cash, 1),
         "total_debt":    round(total_debt, 1),
-        "cloud_rev":     cloud_rev_est,       # 自動估算（取代寫死）
-        "search_ebitda": search_ebitda_est,   # 自動估算（取代寫死）
+        "cloud_rev":     cloud_rev_est,
+        "search_ebitda": search_ebitda_est,
     }
 
 with st.spinner("自動抓取 GOOGL 最新財務數據中..."):
     try:
         d = get_financials()
-        st.success(f"數據已更新（每6小時自動刷新）· 股價 ${d['price']}　Forward EPS ${d['eps_fwd']}　Forward P/E {d['pe_fwd']}x")
-    except Exception as e:
+        st.success(
+            f"數據已更新（每6小時自動刷新）· "
+            f"股價 ${d['price']}　"
+            f"Forward EPS ${d['eps_fwd']}　"
+            f"Forward P/E {d['pe_fwd']}x"
+        )
+    except Exception:
         st.warning(
-            "⚠️ Yahoo Finance 暫時無法連線（可能是限流），目前顯示預設數據（**非即時**）。\n\n"
+            "⚠️ Yahoo Finance 暫時無法連線，目前顯示預設數據（**非即時**）。\n\n"
             "請稍後幾分鐘後重新整理頁面即可恢復。"
         )
         d = {
@@ -114,7 +133,7 @@ with st.spinner("自動抓取 GOOGL 最新財務數據中..."):
 # 3. 側邊欄
 # ─────────────────────────────────────────
 st.sidebar.header("📋 每季手動更新（2 個欄位）")
-st.sidebar.caption("其餘數據已自動抓取，每季財報後只需更新以下兩項")
+st.sidebar.caption(f"目前季度：**{LATEST_QUARTER}**　預設值已設為最新財報數字")
 st.sidebar.markdown("---")
 
 st.sidebar.markdown("**① Cloud 季增速 (%)**")
@@ -124,8 +143,8 @@ st.sidebar.caption(
     "或至 → investors.abc.xyz → Earnings → 最新 Press Release 第一頁"
 )
 cloud_growth = st.sidebar.number_input(
-    "Cloud YoY 增速 (%)", value=48.0, step=0.1,
-    help="Q4 2025 = 48%，來源：Alphabet 季報 Press Release"
+    "Cloud YoY 增速 (%)", value=CLOUD_GROWTH_DEFAULT, step=0.1,
+    help=f"目前預設值 = {LATEST_QUARTER} 財報數字（{CLOUD_GROWTH_DEFAULT}%）\n每季財報後更新程式頂部的 CLOUD_GROWTH_DEFAULT"
 )
 
 st.sidebar.markdown("**② Search 廣告增速 (%)**")
@@ -135,8 +154,8 @@ st.sidebar.caption(
     "計算方式：(本季 - 去年同季) ÷ 去年同季 × 100"
 )
 search_growth = st.sidebar.number_input(
-    "Search YoY 增速 (%)", value=17.0, step=0.1,
-    help="Q4 2025 = 17%，來源：Alphabet 季報 Press Release"
+    "Search YoY 增速 (%)", value=SEARCH_GROWTH_DEFAULT, step=0.1,
+    help=f"目前預設值 = {LATEST_QUARTER} 財報數字（{SEARCH_GROWTH_DEFAULT}%）\n每季財報後更新程式頂部的 SEARCH_GROWTH_DEFAULT"
 )
 
 st.sidebar.markdown("---")
